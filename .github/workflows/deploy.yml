@@ -27,6 +27,7 @@ jobs:
         run: |
           curl https://sdk.cloud.google.com | bash > /dev/null;
           source $HOME/google-cloud-sdk/path.bash.inc
+          gcloud components install gke-gcloud-auth-plugin
           gcloud components update kubectl
           echo $GCP_SERVICE_ACCOUNT_KEY >> service-account-key.json
           gcloud auth activate-service-account --key-file service-account-key.json
