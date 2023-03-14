@@ -17,6 +17,7 @@ jobs:
       GIT_SHA: ${{github.sha}}
       GCP_PROJECT_ID: learning-k8s-380513
       GCP_REGION: us-central1-b
+      GCP_CLUSTER_NAME: multi-cluster
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
@@ -25,9 +26,9 @@ jobs:
         env: 
           GCP_SERVICE_ACCOUNT_KEY: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
         run: |
+          : # Install Google Cloud SDK
           curl https://sdk.cloud.google.com | bash > /dev/null;
           source $HOME/google-cloud-sdk/path.bash.inc
-          gcloud components install gke-gcloud-auth-plugin
           gcloud components update kubectl
           echo $GCP_SERVICE_ACCOUNT_KEY >> service-account-key.json
           gcloud auth activate-service-account --key-file service-account-key.json
@@ -35,11 +36,8 @@ jobs:
           echo ======= Logging into Google Container Registry ======
           cat service-account-key.json | docker login -u _json_key --password-stdin https://gcr.io
           rm service-account-key.json
-          gcloud config set project $GCP_PROJECT_ID
-          gcloud config set compute/zone $GCP_REGION
-          gcloud container clusters get-credentials multi-cluster 
 
-      - name: Build and Deploy
+      - name: Build and Push to Container Registry
         run: |
           docker build -t gcr.io/$GCP_PROJECT_ID/multi-client:latest -t gcr.io/$GCP_PROJECT_ID/multi-client:$GIT_SHA -f ./client/Dockerfile ./client
           docker build -t gcr.io/$GCP_PROJECT_ID/multi-server:latest -t gcr.io/$GCP_PROJECT_ID/multi-server:$GIT_SHA -f ./server/Dockerfile ./server
@@ -51,6 +49,17 @@ jobs:
           docker push gcr.io/$GCP_PROJECT_ID/multi-server:$GIT_SHA
           docker push gcr.io/$GCP_PROJECT_ID/multi-worker:$GIT_SHA
           kubectl apply -f k8s
+        
+      - name: Prepare for manipulating GKE
+        run: |
+          : # ref https://cloud.google.com/kubernetes-engine/docs/how-to/cluster-access-for-kubectl?hl=ja#install_plugin
+
+          gcloud components install gke-gcloud-auth-plugin
+          gke-gcloud-auth-plugin --version
+          gcloud container clusters get-credentials $GCP_CLUSTER_NAME --region=$GCP_REGION
+          gcloud config set project $GCP_PROJECT_ID
+          gcloud config set compute/zone $GCP_REGION
+
           kubectl set image deployments/server-deployment server=gcr.io/$GCP_PROJECT_ID/multi-server:$GIT_SHA
           kubectl set image deployments/client-deployment client=gcr.io/$GCP_PROJECT_ID/multi-client:$GIT_SHA
-          kubectl set image deployments/worker-deployment client=gcr.io/$GCP_PROJECT_ID/multi-worker:$GIT_SHA
+          kubectl set image deployments/worker-deployment worker=gcr.io/$GCP_PROJECT_ID/multi-worker:$GIT_SHA
