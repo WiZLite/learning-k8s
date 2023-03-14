@@ -48,7 +48,6 @@ jobs:
           docker push gcr.io/$GCP_PROJECT_ID/multi-client:$GIT_SHA
           docker push gcr.io/$GCP_PROJECT_ID/multi-server:$GIT_SHA
           docker push gcr.io/$GCP_PROJECT_ID/multi-worker:$GIT_SHA
-          kubectl apply -f k8s
         
       - name: Prepare for manipulating GKE
         run: |
@@ -63,3 +62,4 @@ jobs:
           kubectl set image deployments/server-deployment server=gcr.io/$GCP_PROJECT_ID/multi-server:$GIT_SHA
           kubectl set image deployments/client-deployment client=gcr.io/$GCP_PROJECT_ID/multi-client:$GIT_SHA
           kubectl set image deployments/worker-deployment worker=gcr.io/$GCP_PROJECT_ID/multi-worker:$GIT_SHA
+          kubectl apply -f k8s
