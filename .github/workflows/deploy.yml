@@ -5,27 +5,51 @@ on:
     branches:
       - main
     types: [closed]
+  push:
+    branches:
+      - main
 
 jobs:
   build-images-and-update-cluster:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      GIT_SHA: ${{github.sha}}
+      GCP_PROJECT_ID: learning-k8s-380513
+      GCP_REGION: us-central1-b
     steps:
-      - uses: actions/checkout@v2
-        with:
-          ref: main
+      - name: Checkout code
+        uses: actions/checkout@v2
+
       - name: Setup Google Cloud SDK
-        env: GCP_SERVICE_ACCOUNT_KEY: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+        env: 
+          GCP_SERVICE_ACCOUNT_KEY: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
         run: |
           curl https://sdk.cloud.google.com | bash > /dev/null;
           source $HOME/google-cloud-sdk/path.bash.inc
           gcloud components update kubectl
           echo $GCP_SERVICE_ACCOUNT_KEY >> service-account-key.json
           gcloud auth activate-service-account --key-file service-account-key.json
+
+          echo ======= Logging into Google Container Registry ======
           cat service-account-key.json | docker login -u _json_key --password-stdin https://gcr.io
           rm service-account-key.json
-          gcloud config set project learning-k8s-380513
-          gcloud config set compute/zone us-central1-b
-          gcloud container clusters get-credentials multi-cluster
-      - name: Deploy
-        
+          gcloud config set project $GCP_PROJECT_ID
+          gcloud config set compute/zone $GCP_REGION
+          gcloud container clusters get-credentials multi-cluster 
+
+      - name: Build and Deploy
+        run: |
+          docker build -t gcr.io/$GCP_PROJECT_ID/multi-client:latest -t gcr.io/$GCP_PROJECT_ID/multi-client:$GIT_SHA -f ./client/Dockerfile ./client
+          docker build -t gcr.io/$GCP_PROJECT_ID/multi-server:latest -t gcr.io/$GCP_PROJECT_ID/multi-server:$GIT_SHA -f ./server/Dockerfile ./server
+          docker build -t gcr.io/$GCP_PROJECT_ID/multi-worker:latest -t gcr.io/$GCP_PROJECT_ID/multi-worker:$GIT_SHA -f ./worker/Dockerfile ./worker
+          docker push gcr.io/$GCP_PROJECT_ID/multi-client:latest
+          docker push gcr.io/$GCP_PROJECT_ID/multi-server:latest
+          docker push gcr.io/$GCP_PROJECT_ID/multi-worker:latest
+          docker push gcr.io/$GCP_PROJECT_ID/multi-client:$GIT_SHA
+          docker push gcr.io/$GCP_PROJECT_ID/multi-server:$GIT_SHA
+          docker push gcr.io/$GCP_PROJECT_ID/multi-worker:$GIT_SHA
+          kubectl apply -f k8s
+          kubectl set image deployments/server-deployment server=gcr.io/$GCP_PROJECT_ID/multi-server:$GIT_SHA
+          kubectl set image deployments/client-deployment client=gcr.io/$GCP_PROJECT_ID/multi-client:$GIT_SHA
+          kubectl set image deployments/worker-deployment client=gcr.io/$GCP_PROJECT_ID/multi-worker:$GIT_SHA
